@@ -1,1 +1,35 @@
+name: Weekly Neopsy TG Report
 
+on:
+  workflow_dispatch:
+  schedule:
+    # Sunday 18:59 UTC == Sunday 23:59 Екатеринбург (GMT+5)
+    - cron: "59 18 * * 0"
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Fetch report text from VPS
+        env:
+          WEEKLY_REPORT_URL: ${{ secrets.WEEKLY_REPORT_URL }}
+          WEEKLY_REPORT_TOKEN: ${{ secrets.WEEKLY_REPORT_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsS "${WEEKLY_REPORT_URL}?token=${WEEKLY_REPORT_TOKEN}" -o report.txt
+          echo "Report fetched, bytes:"
+          wc -c report.txt
+
+      - name: Send to Telegram
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN_STAT7744BOT }}
+          CHAT_ID: ${{ secrets.TELEGRAM_STATS_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          TEXT="$(cat report.txt)"
+          curl -fsS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            --data-urlencode "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
