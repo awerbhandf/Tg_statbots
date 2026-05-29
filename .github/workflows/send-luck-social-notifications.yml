@@ -1,0 +1,75 @@
+name: Send Luck Social Notifications
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Каждую минуту
+    - cron: "* * * * *"
+
+jobs:
+  send-notifications:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Fetch pending notifications from VPS
+        id: fetch
+        env:
+          NOTIFICATIONS_URL: ${{ secrets.LUCK_SOCIAL_NOTIFICATIONS_URL }}
+          NOTIFICATIONS_TOKEN: ${{ secrets.LUCK_SOCIAL_NOTIFICATIONS_TOKEN }}
+        run: |
+          set -euo pipefail
+          
+          echo "Fetching pending notifications..."
+          RESPONSE=$(curl -fsS "${NOTIFICATIONS_URL}?token=${NOTIFICATIONS_TOKEN}&limit=50")
+          
+          echo "$RESPONSE" > notifications.json
+          
+          COUNT=$(echo "$RESPONSE" | jq -r '.count // 0')
+          echo "Found $COUNT notifications to send"
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+      - name: Send notifications to Telegram
+        if: steps.fetch.outputs.count > 0
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CONFIRM_URL: ${{ secrets.LUCK_SOCIAL_CONFIRM_URL }}
+          CONFIRM_TOKEN: ${{ secrets.LUCK_SOCIAL_NOTIFICATIONS_TOKEN }}
+        run: |
+          set -euo pipefail
+          
+          echo "Processing notifications..."
+          
+          jq -c '.notifications[]' notifications.json | while read -r notification; do
+            QUEUE_ID=$(echo "$notification" | jq -r '.id')
+            CHAT_ID=$(echo "$notification" | jq -r '.chat_id')
+            MESSAGE=$(echo "$notification" | jq -r '.message')
+            
+            echo "Sending notification $QUEUE_ID to chat $CHAT_ID..."
+            
+            # Отправляем сообщение в Telegram
+            SEND_RESULT=$(curl -fsS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${CHAT_ID}" \
+              --data-urlencode "text=${MESSAGE}" \
+              -d "disable_web_page_preview=true" || echo '{"ok":false}')
+            
+            SEND_OK=$(echo "$SEND_RESULT" | jq -r '.ok // false')
+            
+            if [ "$SEND_OK" = "true" ]; then
+              echo "✅ Notification $QUEUE_ID sent successfully"
+              
+              # Подтверждаем отправку на сервере
+              curl -fsS -X POST "${CONFIRM_URL}" \
+                -H "Content-Type: application/json" \
+                -d "{\"token\":\"${CONFIRM_TOKEN}\",\"queue_id\":${QUEUE_ID}}" || true
+              
+              echo "✅ Notification $QUEUE_ID confirmed on server"
+            else
+              echo "❌ Failed to send notification $QUEUE_ID: $SEND_RESULT"
+            fi
+            
+            # Небольшая пауза между сообщениями
+            sleep 0.5
+          done
+          
+          echo "All notifications processed"
