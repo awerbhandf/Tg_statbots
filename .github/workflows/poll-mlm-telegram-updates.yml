@@ -3,7 +3,7 @@ name: Poll MLM Telegram Notification Links
 on:
   workflow_dispatch:
   schedule:
-    # Каждые 5 минут: минимальный стабильный интервал schedule в GitHub Actions.
+    # Каждые 5 минут: минимальный стабильный интервал schedule в GitHub Actions
     - cron: "*/5 * * * *"
 concurrency:
   group: mlm-telegram-notification-links
@@ -40,8 +40,7 @@ jobs:
 
           echo "Polling Telegram updates..."
           RESPONSE=$(curl -fsS --connect-timeout 10 --max-time 30 \
-            "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?limit=50&timeout=0")
-
+            "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?limit=100&timeout=0")
           echo "$RESPONSE" > updates.json
           OK=$(echo "$RESPONSE" | jq -r '.ok // false')
           if [ "$OK" != "true" ]; then
