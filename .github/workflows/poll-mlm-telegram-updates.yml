@@ -1,0 +1,91 @@
+name: Poll MLM Telegram Notification Links
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Каждую минуту: GitHub обходит блокировку Telegram API с VPS
+    - cron: "* * * * *"
+
+concurrency:
+  group: mlm-telegram-notification-links
+  cancel-in-progress: true
+
+jobs:
+  poll-updates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Poll Telegram updates and forward MLM notification links
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          MLM_TELEGRAM_WEBHOOK_URL: ${{ secrets.MLM_TELEGRAM_WEBHOOK_URL }}
+          MLM_TELEGRAM_WEBHOOK_SECRET: ${{ secrets.MLM_TELEGRAM_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BOT_TOKEN:-}" ]; then
+            echo "TELEGRAM_BOT_TOKEN secret is empty"
+            exit 1
+          fi
+          if [ -z "${MLM_TELEGRAM_WEBHOOK_URL:-}" ]; then
+            echo "MLM_TELEGRAM_WEBHOOK_URL secret is empty"
+            exit 1
+          fi
+
+          # На VPS Telegram webhook не работает из-за сетевой блокировки.
+          # Для getUpdates webhook у Telegram должен быть удалён.
+          echo "Deleting Telegram webhook before polling updates..."
+          curl -fsS --connect-timeout 10 --max-time 30 \
+            "https://api.telegram.org/bot${BOT_TOKEN}/deleteWebhook?drop_pending_updates=false" >/dev/null
+
+          echo "Polling Telegram updates..."
+          RESPONSE=$(curl -fsS --connect-timeout 10 --max-time 30 \
+            "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?limit=50&timeout=0")
+
+          echo "$RESPONSE" > updates.json
+          OK=$(echo "$RESPONSE" | jq -r '.ok // false')
+          if [ "$OK" != "true" ]; then
+            echo "Telegram getUpdates failed: $RESPONSE"
+            exit 1
+          fi
+
+          COUNT=$(echo "$RESPONSE" | jq -r '.result | length')
+          echo "Found ${COUNT} Telegram updates"
+          if [ "$COUNT" = "0" ]; then
+            exit 0
+          fi
+
+          MAX_UPDATE_ID=$(echo "$RESPONSE" | jq -r '[.result[].update_id] | max')
+
+          jq -c '.result[]' updates.json | while read -r update; do
+            UPDATE_ID=$(echo "$update" | jq -r '.update_id')
+            TEXT=$(echo "$update" | jq -r '(.message.text // .edited_message.text // "")')
+
+            if ! echo "$TEXT" | grep -Eiq '^/start(@[A-Za-z0-9_]+)?[[:space:]]+mlmnotify_[a-f0-9]{24}$'; then
+              echo "Skipping update ${UPDATE_ID}: not an MLM notification link"
+              continue
+            fi
+
+            echo "Forwarding update ${UPDATE_ID} to MLM API..."
+            if [ -n "${MLM_TELEGRAM_WEBHOOK_SECRET:-}" ]; then
+              curl -fsS --connect-timeout 10 --max-time 30 -X POST "$MLM_TELEGRAM_WEBHOOK_URL" \
+                -H "Content-Type: application/json" \
+                -H "x-mlm-telegram-forwarded-by: github-actions" \
+                -H "x-telegram-bot-api-secret-token: ${MLM_TELEGRAM_WEBHOOK_SECRET}" \
+                -d "$update" || echo "Forward failed for update ${UPDATE_ID}"
+            else
+              curl -fsS --connect-timeout 10 --max-time 30 -X POST "$MLM_TELEGRAM_WEBHOOK_URL" \
+                -H "Content-Type: application/json" \
+                -H "x-mlm-telegram-forwarded-by: github-actions" \
+                -d "$update" || echo "Forward failed for update ${UPDATE_ID}"
+            fi
+          done
+
+          # Подтверждаем Telegram, что пачка обработана, чтобы она не приходила снова.
+          NEXT_OFFSET=$((MAX_UPDATE_ID + 1))
+          echo "Confirming Telegram updates up to offset ${NEXT_OFFSET}..."
+          curl -fsS --connect-timeout 10 --max-time 30 \
+            "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${NEXT_OFFSET}&limit=1&timeout=0" >/dev/null
+
+          echo "Done"
