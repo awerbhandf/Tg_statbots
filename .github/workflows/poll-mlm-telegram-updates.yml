@@ -3,7 +3,7 @@ name: Poll MLM Telegram Notification Links
 on:
   workflow_dispatch:
   schedule:
-    # Каждые 5 минут: минимальный стабильный интервал schedule в GitHub Actions
+    # Каждые 5 минут: минимальный стабильный интервал schedule в GitHub Actions.
     - cron: "*/5 * * * *"
 concurrency:
   group: mlm-telegram-notification-links
