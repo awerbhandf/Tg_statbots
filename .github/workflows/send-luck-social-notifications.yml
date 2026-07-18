@@ -3,8 +3,8 @@ name: Send Luck Social Notifications
 on:
   workflow_dispatch:
   schedule:
-    # Каждую минуту
-    - cron: "* * * * *"
+    # Каждые 5 минут: минимальный стабильный интервал schedule в GitHub Actions
+    - cron: "*/5 * * * *"
 
 jobs:
   send-notifications:
@@ -15,14 +15,13 @@ jobs:
       - name: Fetch pending notifications from VPS
         id: fetch
         env:
-          NOTIFICATIONS_URL: ${{ secrets.LUCK_SOCIAL_NOTIFICATIONS_URL }}
+          NOTIFICATIONS_URL: https://mlm.miniproject.fyi/api/luck/social/pending-notifications
           NOTIFICATIONS_TOKEN: ${{ secrets.LUCK_SOCIAL_NOTIFICATIONS_TOKEN }}
         run: |
           set -euo pipefail
           
-          echo "Fetching pending notifications..."
-          RESPONSE=$(curl -fsS "${NOTIFICATIONS_URL}?token=${NOTIFICATIONS_TOKEN}&limit=50")
-          
+          echo "Fetching pending notifications from ${NOTIFICATIONS_URL}..."
+          RESPONSE=$(curl -fsS "${NOTIFICATIONS_URL}?token=${NOTIFICATIONS_TOKEN}&limit=50")          
           echo "$RESPONSE" > notifications.json
           
           COUNT=$(echo "$RESPONSE" | jq -r '.count // 0')
@@ -33,7 +32,7 @@ jobs:
         if: steps.fetch.outputs.count > 0
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CONFIRM_URL: ${{ secrets.LUCK_SOCIAL_CONFIRM_URL }}
+          CONFIRM_URL: https://mlm.miniproject.fyi/api/luck/social/confirm-notification
           CONFIRM_TOKEN: ${{ secrets.LUCK_SOCIAL_NOTIFICATIONS_TOKEN }}
         run: |
           set -euo pipefail
