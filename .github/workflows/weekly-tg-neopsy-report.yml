@@ -1,10 +1,10 @@
-name: Weekly Neopsy TG Report
+name: Weekly MLM Report
 
 on:
   workflow_dispatch:
   schedule:
-    # Sunday 18:59 UTC == Sunday 23:59 Екатеринбург (GMT+5)
-    - cron: "59 18 * * 0"
+    # Sunday 19:01 UTC == Monday 00:01 Екатеринбург (GMT+5)
+    - cron: "1 19 * * 0"
 
 jobs:
   send-report:
@@ -12,13 +12,12 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Fetch report text from VPS
+      - name: Fetch MLM report text from VPS
         env:
-          WEEKLY_REPORT_URL: ${{ secrets.WEEKLY_REPORT_URL }}
           WEEKLY_REPORT_TOKEN: ${{ secrets.WEEKLY_REPORT_TOKEN }}
         run: |
           set -euo pipefail
-          curl -fsS "${WEEKLY_REPORT_URL}?token=${WEEKLY_REPORT_TOKEN}" -o report.txt
+          curl -fsS "https://mlm.miniproject.fyi/api/internal/weekly-tg-report?token=${WEEKLY_REPORT_TOKEN}" -o report.txt
           echo "Report fetched, bytes:"
           wc -c report.txt
 
